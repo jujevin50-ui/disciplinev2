@@ -17,7 +17,14 @@ const DEFAULT: AppState = {
 function load(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULT, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // migration: old shape used onboardingDone or onboarding_done
+      if ((parsed.onboardingDone || parsed.onboarding_done) && !parsed.loggedIn) {
+        parsed.loggedIn = true;
+      }
+      return { ...DEFAULT, ...parsed };
+    }
   } catch { /* ignore */ }
   return DEFAULT;
 }
@@ -185,8 +192,17 @@ const AppCtx = createContext<Ctx | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(load);
 
-  // Save to localStorage on every state change
+  // Save on every state change AND on page close
   useEffect(() => { save(state); }, [state]);
+  useEffect(() => {
+    const handler = () => save(state);
+    window.addEventListener('beforeunload', handler);
+    window.addEventListener('pagehide', handler);
+    return () => {
+      window.removeEventListener('beforeunload', handler);
+      window.removeEventListener('pagehide', handler);
+    };
+  }, [state]);
 
   const tokens = state.theme === 'dark' ? DARK : LIGHT;
 
