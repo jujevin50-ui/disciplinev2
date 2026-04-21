@@ -6,7 +6,7 @@ import { supabase } from './supabase';
 import type { AppState, Habit, HabitLog, IconName, HabitType } from './types';
 import type { Tokens } from './tokens';
 import { LIGHT, DARK } from './tokens';
-import { today, uid } from './utils';
+import { today, uid, formatDate, getDow, getDaysInMonth } from './utils';
 
 // ── DB row shapes ─────────────────────────────────────────────────────────
 
@@ -77,8 +77,6 @@ function dbToLog(r: DbLog): HabitLog {
 }
 
 // ── Computation helpers (pure) ────────────────────────────────────────────
-
-import { formatDate, getDow, getDaysInMonth } from './utils';
 
 export function computeStreak(habitId: string, habits: Habit[], logs: HabitLog[]): number {
   const habit = habits.find(h => h.id === habitId);
