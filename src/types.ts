@@ -28,7 +28,6 @@ export interface AppState {
   habits: Habit[];
   logs: HabitLog[];
   userName: string;
-  onboardingDone: boolean;
+  loggedIn: boolean;     // true after first account creation — persists forever
   theme: 'light' | 'dark';
-  pin?: string; // 4-digit PIN hash
 }

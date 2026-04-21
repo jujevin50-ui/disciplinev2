@@ -10,14 +10,22 @@ const DEFAULT: AppState = {
   habits: [],
   logs: [],
   userName: '',
-  onboardingDone: false,
+  loggedIn: false,
   theme: 'light',
 };
 
 function load(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULT, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // migrate old shape: onboardingDone → loggedIn
+      if (parsed.onboardingDone && parsed.loggedIn === undefined) {
+        parsed.loggedIn = true;
+        delete parsed.onboardingDone;
+      }
+      return { ...DEFAULT, ...parsed };
+    }
   } catch { /* ignore */ }
   return DEFAULT;
 }
@@ -184,16 +192,6 @@ export function computeGlobalStats(habits: Habit[], logs: HabitLog[], days = 84)
 
 // ── Context ───────────────────────────────────────────────────────────────
 
-const SESSION_KEY = 'discipline_session';
-
-export function isSessionActive(): boolean {
-  return sessionStorage.getItem(SESSION_KEY) === 'true';
-}
-
-export function activateSession(): void {
-  sessionStorage.setItem(SESSION_KEY, 'true');
-}
-
 interface Ctx {
   state: AppState;
   tokens: Tokens;
@@ -202,10 +200,9 @@ interface Ctx {
   deleteHabit(id: string): void;
   toggleLog(habitId: string, date: string): void;
   setUserName(name: string): void;
-  finishOnboarding(habits: Omit<Habit, 'id' | 'createdAt'>[], name: string, pin: string): void;
+  createAccount(habits: Omit<Habit, 'id' | 'createdAt'>[], name: string): void;
+  logout(): void;
   setTheme(t: 'light' | 'dark'): void;
-  setPin(pin: string): void;
-  checkPin(pin: string): boolean;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -253,26 +250,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState(s => ({ ...s, userName: name }));
   }, []);
 
-  const finishOnboarding = useCallback((habitDefs: Omit<Habit, 'id' | 'createdAt'>[], name: string, pin: string) => {
+  const createAccount = useCallback((habitDefs: Omit<Habit, 'id' | 'createdAt'>[], name: string) => {
     const todayStr = today();
     const newHabits: Habit[] = habitDefs.map(h => ({ ...h, id: uid(), createdAt: todayStr }));
-    setState(s => ({ ...s, habits: [...s.habits, ...newHabits], userName: name, onboardingDone: true, pin }));
+    setState(s => ({ ...s, habits: [...s.habits, ...newHabits], userName: name, loggedIn: true }));
+  }, []);
+
+  const logout = useCallback(() => {
+    setState(DEFAULT);
+    localStorage.removeItem(STORAGE_KEY);
   }, []);
 
   const setTheme = useCallback((t: 'light' | 'dark') => {
     setState(s => ({ ...s, theme: t }));
   }, []);
 
-  const setPin = useCallback((pin: string) => {
-    setState(s => ({ ...s, pin }));
-  }, []);
-
-  const checkPin = useCallback((pin: string): boolean => {
-    return state.pin === pin;
-  }, [state.pin]);
-
   return (
-    <AppCtx.Provider value={{ state, tokens, addHabit, updateHabit, deleteHabit, toggleLog, setUserName, finishOnboarding, setTheme, setPin, checkPin }}>
+    <AppCtx.Provider value={{ state, tokens, addHabit, updateHabit, deleteHabit, toggleLog, setUserName, createAccount, logout, setTheme }}>
       {children}
     </AppCtx.Provider>
   );
