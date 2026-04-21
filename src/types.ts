@@ -28,6 +28,6 @@ export interface AppState {
   habits: Habit[];
   logs: HabitLog[];
   userName: string;
+  loggedIn: boolean;
   theme: 'light' | 'dark';
-  onboardingDone: boolean;
 }

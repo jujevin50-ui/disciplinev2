@@ -1,82 +1,34 @@
-import {
-  createContext, useContext, useState, useEffect, useCallback, ReactNode,
-} from 'react';
-import type { Session } from '@supabase/supabase-js';
-import { supabase } from './supabase';
-import type { AppState, Habit, HabitLog, IconName, HabitType } from './types';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import type { AppState, Habit, HabitLog } from './types';
 import type { Tokens } from './tokens';
 import { LIGHT, DARK } from './tokens';
 import { today, uid, formatDate, getDow, getDaysInMonth } from './utils';
 
-// ── DB row shapes ─────────────────────────────────────────────────────────
+const STORAGE_KEY = 'discipline_v2';
 
-interface DbProfile {
-  id: string;
-  user_name: string;
-  theme: string;
-  onboarding_done: boolean;
+const DEFAULT: AppState = {
+  habits: [],
+  logs: [],
+  userName: '',
+  loggedIn: false,
+  theme: 'light',
+};
+
+function load(): AppState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return { ...DEFAULT, ...JSON.parse(raw) };
+  } catch { /* ignore */ }
+  return DEFAULT;
 }
 
-interface DbHabit {
-  id: string;
-  user_id: string;
-  name: string;
-  icon: string;
-  type: string;
-  goal_minutes: number | null;
-  frequency: number[];
-  reminder_time: string | null;
-  created_at: string;
+function save(state: AppState) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch { /* ignore */ }
 }
 
-interface DbLog {
-  id?: string;
-  user_id: string;
-  habit_id: string;
-  date: string;
-  completed: boolean;
-  minutes: number | null;
-}
-
-// ── Mappers ───────────────────────────────────────────────────────────────
-
-function dbToHabit(r: DbHabit): Habit {
-  return {
-    id: r.id,
-    name: r.name,
-    icon: r.icon as IconName,
-    type: r.type as HabitType,
-    goalMinutes: r.goal_minutes ?? undefined,
-    frequency: r.frequency,
-    reminderTime: r.reminder_time ?? undefined,
-    createdAt: r.created_at,
-  };
-}
-
-function habitToDb(h: Omit<Habit, 'id' | 'createdAt'>, userId: string, id: string): DbHabit {
-  return {
-    id,
-    user_id: userId,
-    name: h.name,
-    icon: h.icon,
-    type: h.type,
-    goal_minutes: h.goalMinutes ?? null,
-    frequency: h.frequency,
-    reminder_time: h.reminderTime ?? null,
-    created_at: today(),
-  };
-}
-
-function dbToLog(r: DbLog): HabitLog {
-  return {
-    habitId: r.habit_id,
-    date: r.date,
-    completed: r.completed,
-    minutes: r.minutes ?? undefined,
-  };
-}
-
-// ── Computation helpers (pure) ────────────────────────────────────────────
+// ── Computation helpers ───────────────────────────────────────────────────
 
 export function computeStreak(habitId: string, habits: Habit[], logs: HabitLog[]): number {
   const habit = habits.find(h => h.id === habitId);
@@ -109,10 +61,8 @@ export function computeBestStreak(habitId: string, habits: Habit[], logs: HabitL
     const ds = formatDate(d);
     const dow = getDow(ds);
     if (habit.frequency.includes(dow)) {
-      if (logs.some(l => l.habitId === habitId && l.date === ds && l.completed)) {
-        cur++;
-        if (cur > best) best = cur;
-      } else cur = 0;
+      if (logs.some(l => l.habitId === habitId && l.date === ds && l.completed)) { cur++; if (cur > best) best = cur; }
+      else cur = 0;
     }
     d.setDate(d.getDate() + 1);
   }
@@ -205,9 +155,7 @@ export function computeGlobalStats(habits: Habit[], logs: HabitLog[], days = 84)
       if (ds < h.createdAt) continue;
       if (h.frequency.includes(dow)) {
         totalDue++; weekDue[wIdx]++;
-        if (logs.some(l => l.habitId === h.id && l.date === ds && l.completed)) {
-          totalDone++; weekDone[wIdx]++;
-        }
+        if (logs.some(l => l.habitId === h.id && l.date === ds && l.completed)) { totalDone++; weekDone[wIdx]++; }
       }
     }
     d.setDate(d.getDate() - 1);
@@ -219,218 +167,73 @@ export function computeGlobalStats(habits: Habit[], logs: HabitLog[], days = 84)
 
 // ── Context ───────────────────────────────────────────────────────────────
 
-const EMPTY_STATE: AppState = {
-  habits: [], logs: [], userName: '', theme: 'light', onboardingDone: false,
-};
-
 interface Ctx {
-  session: Session | null;
-  authLoading: boolean;
   state: AppState;
   tokens: Tokens;
-  signUp(email: string, password: string, name: string): Promise<string | null>;
-  signIn(email: string, password: string): Promise<string | null>;
-  signOut(): Promise<void>;
   addHabit(h: Omit<Habit, 'id' | 'createdAt'>): string;
   updateHabit(id: string, h: Partial<Omit<Habit, 'id' | 'createdAt'>>): void;
   deleteHabit(id: string): void;
   toggleLog(habitId: string, date: string): void;
   setUserName(name: string): void;
   createAccount(habits: Omit<Habit, 'id' | 'createdAt'>[], name: string): void;
+  logout(): void;
   setTheme(t: 'light' | 'dark'): void;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [state, setState] = useState<AppState>(EMPTY_STATE);
+  const [state, setState] = useState<AppState>(load);
+
+  // Save to localStorage on every state change
+  useEffect(() => { save(state); }, [state]);
 
   const tokens = state.theme === 'dark' ? DARK : LIGHT;
 
-  // ── Load data for a user ──────────────────────────────────────────────
-
-  const loadUserData = useCallback(async (userId: string) => {
-    const [profileRes, habitsRes, logsRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('habits').select('*').eq('user_id', userId).order('created_at'),
-      supabase.from('habit_logs').select('*').eq('user_id', userId),
-    ]);
-
-    const profile = profileRes.data as DbProfile | null;
-    const habits = (habitsRes.data as DbHabit[] | null) ?? [];
-    const logs = (logsRes.data as DbLog[] | null) ?? [];
-
-    setState(prev => ({
-      habits: habits.map(dbToHabit),
-      logs: logs.map(dbToLog),
-      userName: profile?.user_name ?? prev.userName,
-      theme: (profile?.theme as 'light' | 'dark') ?? prev.theme,
-      onboardingDone: profile?.onboarding_done ?? prev.onboardingDone,
-    }));
-  }, []);
-
-  // ── Auth listener ─────────────────────────────────────────────────────
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      if (s) loadUserData(s.user.id).finally(() => setAuthLoading(false));
-      else setAuthLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
-      if (s) loadUserData(s.user.id);
-      else setState(EMPTY_STATE);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [loadUserData]);
-
-  // ── Auth actions ──────────────────────────────────────────────────────
-
-  const signUp = useCallback(async (email: string, password: string, name: string): Promise<string | null> => {
-    setState(s => ({ ...s, userName: name }));
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) return error.message;
-    if (data.user) {
-      supabase.from('profiles').insert({
-        id: data.user.id,
-        user_name: name,
-        theme: 'light',
-        onboarding_done: false,
-      });
-    }
-    return null;
-  }, []);
-
-  const signIn = useCallback(async (email: string, password: string): Promise<string | null> => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return error ? error.message : null;
-  }, []);
-
-  const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
-  }, []);
-
-  // ── Data mutations (optimistic) ───────────────────────────────────────
-
   const addHabit = useCallback((h: Omit<Habit, 'id' | 'createdAt'>): string => {
     const id = uid();
-    const newHabit: Habit = { ...h, id, createdAt: today() };
-    setState(s => ({ ...s, habits: [...s.habits, newHabit] }));
-    if (session) {
-      supabase.from('habits').insert(habitToDb(h, session.user.id, id));
-    }
+    setState(s => ({ ...s, habits: [...s.habits, { ...h, id, createdAt: today() }] }));
     return id;
-  }, [session]);
+  }, []);
 
   const updateHabit = useCallback((id: string, h: Partial<Omit<Habit, 'id' | 'createdAt'>>) => {
     setState(s => ({ ...s, habits: s.habits.map(x => x.id === id ? { ...x, ...h } : x) }));
-    if (session) {
-      const dbPatch: Partial<DbHabit> = {};
-      if (h.name !== undefined) dbPatch.name = h.name;
-      if (h.icon !== undefined) dbPatch.icon = h.icon;
-      if (h.type !== undefined) dbPatch.type = h.type;
-      if (h.goalMinutes !== undefined) dbPatch.goal_minutes = h.goalMinutes;
-      if (h.frequency !== undefined) dbPatch.frequency = h.frequency;
-      if (h.reminderTime !== undefined) dbPatch.reminder_time = h.reminderTime;
-      supabase.from('habits').update(dbPatch).eq('id', id);
-    }
-  }, [session]);
+  }, []);
 
   const deleteHabit = useCallback((id: string) => {
-    setState(s => ({
-      ...s,
-      habits: s.habits.filter(h => h.id !== id),
-      logs: s.logs.filter(l => l.habitId !== id),
-    }));
-    if (session) {
-      supabase.from('habits').delete().eq('id', id);
-    }
-  }, [session]);
+    setState(s => ({ ...s, habits: s.habits.filter(h => h.id !== id), logs: s.logs.filter(l => l.habitId !== id) }));
+  }, []);
 
   const toggleLog = useCallback((habitId: string, date: string) => {
     setState(s => {
       const existing = s.logs.find(l => l.habitId === habitId && l.date === date);
-      if (existing) {
-        return { ...s, logs: s.logs.map(l =>
-          l.habitId === habitId && l.date === date ? { ...l, completed: !l.completed } : l
-        )};
-      }
+      if (existing) return { ...s, logs: s.logs.map(l => l.habitId === habitId && l.date === date ? { ...l, completed: !l.completed } : l) };
       return { ...s, logs: [...s.logs, { habitId, date, completed: true }] };
     });
-    if (session) {
-      supabase.from('habit_logs')
-        .select('completed')
-        .eq('habit_id', habitId)
-        .eq('date', date)
-        .single()
-        .then(({ data }) => {
-          if (data) {
-            supabase.from('habit_logs')
-              .update({ completed: !data.completed })
-              .eq('habit_id', habitId)
-              .eq('date', date);
-          } else {
-            supabase.from('habit_logs').insert({
-              user_id: session.user.id,
-              habit_id: habitId,
-              date,
-              completed: true,
-              minutes: null,
-            });
-          }
-        });
-    }
-  }, [session]);
+  }, []);
 
   const setUserName = useCallback((name: string) => {
     setState(s => ({ ...s, userName: name }));
-    if (session) {
-      supabase.from('profiles').update({ user_name: name }).eq('id', session.user.id);
-    }
-  }, [session]);
+  }, []);
 
   const createAccount = useCallback((habitDefs: Omit<Habit, 'id' | 'createdAt'>[], name: string) => {
-    const todayStr = today();
-    const newHabits: Habit[] = habitDefs.map(h => ({ ...h, id: uid(), createdAt: todayStr }));
-    setState(s => ({
-      ...s,
-      habits: [...s.habits, ...newHabits],
-      userName: name,
-      onboardingDone: true,
-    }));
-    if (session) {
-      const userId = session.user.id;
-      supabase.from('profiles').upsert({
-        id: userId,
-        user_name: name,
-        theme: state.theme,
-        onboarding_done: true,
-      });
-      supabase.from('habits').insert(
-        newHabits.map(h => habitToDb(h, userId, h.id))
-      );
-    }
-  }, [session, state.theme]);
+    const newHabits: Habit[] = habitDefs.map(h => ({ ...h, id: uid(), createdAt: today() }));
+    const next: AppState = { ...DEFAULT, habits: newHabits, userName: name, loggedIn: true, theme: 'light' };
+    save(next);
+    setState(next);
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    setState(DEFAULT);
+  }, []);
 
   const setTheme = useCallback((t: 'light' | 'dark') => {
     setState(s => ({ ...s, theme: t }));
-    if (session) {
-      supabase.from('profiles').update({ theme: t }).eq('id', session.user.id);
-    }
-  }, [session]);
+  }, []);
 
   return (
-    <AppCtx.Provider value={{
-      session, authLoading, state, tokens,
-      signUp, signIn, signOut,
-      addHabit, updateHabit, deleteHabit, toggleLog,
-      setUserName, createAccount, setTheme,
-    }}>
+    <AppCtx.Provider value={{ state, tokens, addHabit, updateHabit, deleteHabit, toggleLog, setUserName, createAccount, logout, setTheme }}>
       {children}
     </AppCtx.Provider>
   );
