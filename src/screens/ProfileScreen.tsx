@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon';
 import { today } from '../utils';
 
 export function ProfileScreen() {
-  const { state, tokens: T, setUserName, setTheme, logout } = useApp();
+  const { state, tokens: T, setUserName, setTheme, signOut } = useApp();
   const navigate = useNavigate();
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(state.userName);
@@ -32,9 +32,9 @@ export function ProfileScreen() {
     URL.revokeObjectURL(url);
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/onboarding', { replace: true });
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/auth', { replace: true });
   };
 
   const initial = (state.userName || 'U')[0].toUpperCase();

@@ -36,3 +36,7 @@ a { text-decoration: none; color: inherit; }
   scrollbar-width: none;
 }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

@@ -28,6 +28,6 @@ export interface AppState {
   habits: Habit[];
   logs: HabitLog[];
   userName: string;
-  loggedIn: boolean;     // true after first account creation — persists forever
   theme: 'light' | 'dark';
+  onboardingDone: boolean;
 }
