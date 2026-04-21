@@ -262,13 +262,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const habits = (habitsRes.data as DbHabit[] | null) ?? [];
     const logs = (logsRes.data as DbLog[] | null) ?? [];
 
-    setState({
+    setState(prev => ({
       habits: habits.map(dbToHabit),
       logs: logs.map(dbToLog),
-      userName: profile?.user_name ?? '',
-      theme: (profile?.theme as 'light' | 'dark') ?? 'light',
-      onboardingDone: profile?.onboarding_done ?? false,
-    });
+      userName: profile?.user_name ?? prev.userName,
+      theme: (profile?.theme as 'light' | 'dark') ?? prev.theme,
+      onboardingDone: profile?.onboarding_done ?? prev.onboardingDone,
+    }));
   }, []);
 
   // ── Auth listener ─────────────────────────────────────────────────────
@@ -292,10 +292,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Auth actions ──────────────────────────────────────────────────────
 
   const signUp = useCallback(async (email: string, password: string, name: string): Promise<string | null> => {
+    setState(s => ({ ...s, userName: name }));
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) return error.message;
     if (data.user) {
-      await supabase.from('profiles').insert({
+      supabase.from('profiles').insert({
         id: data.user.id,
         user_name: name,
         theme: 'light',

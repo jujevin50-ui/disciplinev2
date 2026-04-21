@@ -9,8 +9,6 @@ export function AuthScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [signupDone, setSignupDone] = useState(false);
-
   const submit = async () => {
     setError('');
     if (!email.trim() || !password) return;
@@ -21,37 +19,16 @@ export function AuthScreen() {
       if (err) {
         setError(err);
         setLoading(false);
-      } else {
-        setSignupDone(true);
-        setLoading(false);
       }
+      // on success, auth listener reroutes automatically
     } else {
       const err = await signIn(email.trim(), password);
       if (err) {
         setError(err === 'Invalid login credentials' ? 'Email ou mot de passe incorrect.' : err);
         setLoading(false);
       }
-      // on success, auth listener will update session → app reroutes
     }
   };
-
-  if (signupDone) {
-    return (
-      <div style={{ height: '100%', background: T.paper, color: T.ink, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 32px', gap: 16 }}>
-        <div style={{ fontSize: 48 }}>✉️</div>
-        <div style={{ fontSize: 22, fontWeight: 500, textAlign: 'center' }}>Vérifiez votre email</div>
-        <div style={{ fontSize: 15, color: T.inkSoft, textAlign: 'center', lineHeight: 1.5 }}>
-          Un lien de confirmation a été envoyé à <strong>{email}</strong>. Cliquez dessus pour activer votre compte, puis revenez ici pour vous connecter.
-        </div>
-        <button onClick={() => { setTab('login'); setSignupDone(false); }} style={{
-          marginTop: 8, padding: '12px 28px', borderRadius: 12,
-          background: T.ink, color: T.paper, fontSize: 15, fontWeight: 600,
-        }}>
-          Se connecter
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div style={{ height: '100%', background: T.paper, color: T.ink, display: 'flex', flexDirection: 'column' }}>
