@@ -5,11 +5,48 @@ import { TabBar } from '../components/TabBar';
 import { Icon } from '../components/Icon';
 import { today } from '../utils';
 
+const NUMPAD = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
+
 export function ProfileScreen() {
-  const { state, tokens: T, setUserName, setTheme } = useApp();
+  const { state, tokens: T, setUserName, setTheme, setPin } = useApp();
   const navigate = useNavigate();
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(state.userName);
+  const [changingPin, setChangingPin] = useState(false);
+  const [newPin, setNewPin] = useState('');
+  const [newPinConfirm, setNewPinConfirm] = useState('');
+  const [pinPhase, setPinPhase] = useState<'create'|'confirm'>('create');
+  const [pinError, setPinError] = useState(false);
+
+  const pressNewPin = (key: string) => {
+    const isConfirm = pinPhase === 'confirm';
+    const current = isConfirm ? newPinConfirm : newPin;
+    if (key === '⌫') {
+      if (isConfirm) setNewPinConfirm(p => p.slice(0,-1));
+      else setNewPin(p => p.slice(0,-1));
+      setPinError(false);
+      return;
+    }
+    if (current.length >= 4) return;
+    const after = current + key;
+    if (isConfirm) {
+      setNewPinConfirm(after);
+      if (after.length === 4) {
+        if (newPin === after) {
+          setPin(newPin);
+          setChangingPin(false);
+          setNewPin(''); setNewPinConfirm('');
+          setPinPhase('create');
+        } else {
+          setPinError(true);
+          setTimeout(() => { setNewPinConfirm(''); setPinError(false); }, 600);
+        }
+      }
+    } else {
+      setNewPin(after);
+      if (after.length === 4) setPinPhase('confirm');
+    }
+  };
 
   // Compute global stats
   const allStreaks = state.habits.map(h => computeBestStreak(h.id, state.habits, state.logs));
@@ -196,13 +233,27 @@ export function ProfileScreen() {
               </button>
             </div>
 
+            {/* Change PIN */}
+            <button
+              onClick={() => { setChangingPin(true); setNewPin(''); setNewPinConfirm(''); setPinPhase('create'); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: '14px 16px', width: '100%', textAlign: 'left',
+                borderTop: `1px solid ${T.rule}`, color: T.ink,
+              }}
+            >
+              <Icon name="settings" size={18} color={T.inkSoft} />
+              <div style={{ flex: 1, fontSize: 15 }}>Changer le code PIN</div>
+              <Icon name="chevron" size={14} color={T.inkFaint} />
+            </button>
+
             {/* Export */}
             <button
               onClick={exportData}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14,
                 padding: '14px 16px', width: '100%', textAlign: 'left',
-                color: T.ink,
+                borderTop: `1px solid ${T.rule}`, color: T.ink,
               }}
             >
               <Icon name="book" size={18} color={T.inkSoft} />
@@ -211,6 +262,70 @@ export function ProfileScreen() {
             </button>
           </div>
         </div>
+
+        {/* PIN change modal */}
+        {changingPin && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+            onClick={() => setChangingPin(false)}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: '100%', maxWidth: 430,
+                background: T.paper, borderRadius: '24px 24px 0 0',
+                padding: '28px 28px 40px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+              }}
+            >
+              <div style={{ fontSize: 18, fontWeight: 500, color: T.ink, marginBottom: 6 }}>
+                {pinPhase === 'create' ? 'Nouveau code PIN' : 'Confirmer le code'}
+              </div>
+              <div style={{ fontSize: 13, color: T.inkMuted, marginBottom: 28 }}>
+                {pinPhase === 'create' ? 'Choisissez 4 chiffres' : 'Saisissez à nouveau'}
+              </div>
+
+              {/* Dots */}
+              <div style={{ display: 'flex', gap: 20, marginBottom: 32,
+                animation: pinError ? 'shake .5s ease' : 'none',
+              }}>
+                {[0,1,2,3].map(i => {
+                  const cur = pinPhase === 'confirm' ? newPinConfirm : newPin;
+                  return (
+                    <div key={i} style={{
+                      width: 14, height: 14, borderRadius: 7,
+                      background: i < cur.length ? (pinError ? '#dc2626' : T.ink) : T.ruleStrong,
+                      transition: 'background .15s',
+                    }} />
+                  );
+                })}
+              </div>
+
+              {/* Numpad */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, width: '100%', maxWidth: 280 }}>
+                {NUMPAD.map((key, i) => (
+                  <button key={i} onClick={() => key !== '' && pressNewPin(key)} disabled={key === ''} style={{
+                    height: 60, borderRadius: 16,
+                    background: key === '' ? 'transparent' : T.paperAlt,
+                    border: 'none', fontSize: key === '⌫' ? 16 : 24, fontWeight: 300,
+                    color: key === '' ? 'transparent' : T.ink,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: key === '' ? 'default' : 'pointer',
+                  }}>
+                    {key === '⌫' ? <Icon name="x" size={16} color={T.inkSoft} /> : key}
+                  </button>
+                ))}
+              </div>
+
+              <button onClick={() => setChangingPin(false)} style={{
+                marginTop: 20, color: T.inkMuted, fontSize: 13,
+              }}>Annuler</button>
+            </div>
+          </div>
+        )}
 
         {/* Version */}
         <div style={{

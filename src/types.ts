@@ -30,4 +30,5 @@ export interface AppState {
   userName: string;
   onboardingDone: boolean;
   theme: 'light' | 'dark';
+  pin?: string; // 4-digit PIN hash
 }
