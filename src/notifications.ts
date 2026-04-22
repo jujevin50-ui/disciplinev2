@@ -23,9 +23,7 @@ export function cancelAll() {
 function showNotification(habit: Habit) {
   if (Notification.permission !== 'granted') return;
   const n = new Notification(habit.name, {
-    body: habit.type === 'duration'
-      ? `${habit.goalMinutes} min · c'est l'heure !`
-      : "C'est l'heure de votre habitude !",
+    body: habit.type === 'duration' ? `${habit.goalMinutes} min` : '',
     icon: '/icon-192.png',
     tag: `habit-${habit.id}`,
   });
