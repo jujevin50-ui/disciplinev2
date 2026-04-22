@@ -5,7 +5,7 @@ import type { Habit, HabitLog } from './types';
 import type { Tokens } from './tokens';
 import { LIGHT, DARK } from './tokens';
 import { today, uid, formatDate, getDow, getDaysInMonth } from './utils';
-import { scheduleAll, startVisibilityReschedule } from './notifications';
+import { scheduleAll } from './notifications';
 
 // Habits & logs stored locally per user
 const dataKey = (uid: string) => `discipline_v2_${uid}`;
@@ -235,12 +235,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     scheduleAll(local.habits);
   }, [local, user]);
 
-  // Reschedule when tab becomes visible (handles next-day case)
-  useEffect(() => {
-    const habits = local.habits;
-    startVisibilityReschedule(() => habits);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [local.habits]);
 
   const state = toAppState(local, !!session);
   const tokens = local.theme === 'dark' ? DARK : LIGHT;
