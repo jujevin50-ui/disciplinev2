@@ -3,9 +3,8 @@ import { supabase } from './supabase';
 
 const VAPID_PUBLIC = 'BAfxj3T0MPa8MBbWYE9rEm7H9Tiu29leD3Mi1yti6Tn1PhaiSZ6TI20mdNaBTPyPRZqOU5gvcsHdWU5vC1PGBpw';
 
-let intervalId: number | null = null;
-let intervalPending = false;
-let scheduledHabits: Habit[] = [];
+// habitId → timeoutId
+const scheduledTimeouts = new Map<string, number>();
 
 export function supported(): boolean {
   return 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
@@ -20,7 +19,6 @@ export async function requestPermission(): Promise<boolean> {
 
 function fire(habit: Habit) {
   if (Notification.permission !== 'granted') return;
-  console.log(`[Discipline] 🔔 Firing notification: "${habit.name}"`);
   const n = new Notification(habit.name, {
     body: habit.type === 'duration' ? `${habit.goalMinutes} min` : '',
     icon: '/icon-192.png',
@@ -38,59 +36,65 @@ export function testNotification(habit: Habit) {
   }
 }
 
-// ── In-browser ticker ──────────────────────────────────────────────────────
-
-function tick() {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-
+// Calcule les ms jusqu'à la prochaine occurrence de reminderTime sur l'un des jours frequency
+function msUntilNext(reminderTime: string, frequency: number[]): number {
+  const [hh, mm] = reminderTime.split(':').map(Number);
   const now = new Date();
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const nowStr = `${hh}:${mm}`;
-  // Monday=0 … Sunday=6
-  const todayDow = (now.getDay() + 6) % 7;
+  const todayDow = (now.getDay() + 6) % 7; // lundi=0 … dimanche=6
 
-  const habitsWithReminder = scheduledHabits.filter(h => h.reminderTime);
-  console.log(`[Discipline] tick ${nowStr} dow=${todayDow} | habits avec rappel: ${habitsWithReminder.length}`);
+  for (let offset = 0; offset < 7; offset++) {
+    const targetDow = (todayDow + offset) % 7;
+    if (!frequency.includes(targetDow)) continue;
 
-  for (const habit of habitsWithReminder) {
-    console.log(`[Discipline]   "${habit.name}" → rappel=${habit.reminderTime} jours=[${habit.frequency}]`);
-    if (!habit.frequency.includes(todayDow)) {
-      console.log(`[Discipline]   ↳ skipped (pas aujourd'hui)`);
-      continue;
-    }
-    if (habit.reminderTime === nowStr) {
-      fire(habit);
-    }
+    const target = new Date(now);
+    target.setDate(target.getDate() + offset);
+    target.setHours(hh, mm, 0, 0);
+
+    const ms = target.getTime() - now.getTime();
+    if (ms > 500) return ms; // > 0.5s pour éviter de refirer immédiatement
   }
+
+  return 7 * 24 * 60 * 60 * 1000; // fallback 7 jours
+}
+
+function scheduleHabit(habit: Habit) {
+  if (!habit.reminderTime) return;
+
+  const existing = scheduledTimeouts.get(habit.id);
+  if (existing !== undefined) clearTimeout(existing);
+
+  const ms = msUntilNext(habit.reminderTime, habit.frequency);
+  const fireAt = new Date(Date.now() + ms);
+  console.log(`[Discipline] "${habit.name}" → ${habit.reminderTime} dans ${Math.round(ms / 60000)}min (${fireAt.toLocaleTimeString()})`);
+
+  const id = window.setTimeout(() => {
+    fire(habit);
+    scheduleHabit(habit); // reprogramme pour la prochaine occurrence
+  }, ms);
+
+  scheduledTimeouts.set(habit.id, id);
 }
 
 export function scheduleAll(habits: Habit[]) {
-  scheduledHabits = habits;
+  // Annuler les timeouts des habitudes supprimées ou sans rappel
+  const activeIds = new Set(habits.filter(h => h.reminderTime).map(h => h.id));
+  for (const [id, tid] of scheduledTimeouts) {
+    if (!activeIds.has(id)) {
+      clearTimeout(tid);
+      scheduledTimeouts.delete(id);
+    }
+  }
 
-  // Ne créer l'interval qu'une seule fois
-  if (intervalId !== null || intervalPending) return;
-
-  intervalPending = true;
-  const now = new Date();
-  // Attendre le début de la prochaine minute exacte
-  const msToNext = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
-  console.log(`[Discipline] Ticker démarre dans ${Math.round(msToNext / 1000)}s`);
-
-  window.setTimeout(() => {
-    tick();
-    intervalId = window.setInterval(tick, 60_000);
-    intervalPending = false;
-    console.log('[Discipline] Ticker actif (toutes les 60s)');
-  }, msToNext);
+  // Programmer chaque habitude avec un rappel
+  for (const habit of habits) {
+    if (habit.reminderTime) scheduleHabit(habit);
+  }
 }
 
 // ── Web Push subscription (navigateur fermé) ───────────────────────────────
 
 async function getSWRegistration(): Promise<ServiceWorkerRegistration | null> {
-  try {
-    return await navigator.serviceWorker.ready;
-  } catch { return null; }
+  try { return await navigator.serviceWorker.ready; } catch { return null; }
 }
 
 function urlBase64ToUint8Array(base64: string): ArrayBuffer {
@@ -103,24 +107,14 @@ function urlBase64ToUint8Array(base64: string): ArrayBuffer {
 }
 
 export async function subscribePush(userId: string): Promise<boolean> {
-  if (!supported()) {
-    console.log('[Discipline] Web Push non supporté sur ce navigateur');
-    return false;
-  }
+  if (!supported()) return false;
   const granted = await requestPermission();
-  if (!granted) {
-    console.log('[Discipline] Permission notification refusée');
-    return false;
-  }
+  if (!granted) return false;
 
   const reg = await getSWRegistration();
-  if (!reg) {
-    console.log('[Discipline] Service Worker non enregistré');
-    return false;
-  }
+  if (!reg) return false;
 
   try {
-    // Réutiliser l'abonnement existant si valide, sinon en créer un nouveau
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       sub = await reg.pushManager.subscribe({
@@ -130,19 +124,12 @@ export async function subscribePush(userId: string): Promise<boolean> {
     }
 
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    console.log(`[Discipline] Push subscription enregistrée | tz=${tz}`);
-
-    await supabase.from('push_subscriptions').upsert({
-      user_id: userId,
-      subscription: sub.toJSON(),
-      timezone: tz,
-    }, { onConflict: 'user_id' });
-
+    await supabase.from('push_subscriptions').upsert(
+      { user_id: userId, subscription: sub.toJSON(), timezone: tz },
+      { onConflict: 'user_id' }
+    );
     return true;
-  } catch (e) {
-    console.error('[Discipline] Erreur subscription push:', e);
-    return false;
-  }
+  } catch { return false; }
 }
 
 export async function syncReminders(userId: string, habits: Habit[]) {
@@ -150,7 +137,6 @@ export async function syncReminders(userId: string, habits: Habit[]) {
   const withoutReminder = habits.filter(h => !h.reminderTime).map(h => h.id);
 
   if (withReminder.length > 0) {
-    console.log(`[Discipline] syncReminders: upsert ${withReminder.length} rappel(s)`);
     await supabase.from('reminders').upsert(
       withReminder.map(h => ({
         user_id: userId,
