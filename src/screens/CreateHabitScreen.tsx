@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context';
 import { Icon } from '../components/Icon';
+import { requestPermission } from '../notifications';
 import type { Habit, HabitType, IconName } from '../types';
 
 const DAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
@@ -226,7 +227,13 @@ export function CreateHabitScreen() {
               <span style={{ fontSize: 15, color: T.ink }}>Activer un rappel</span>
             </div>
             <button
-              onClick={() => setReminderEnabled(!reminderEnabled)}
+              onClick={async () => {
+                if (!reminderEnabled) {
+                  const granted = await requestPermission();
+                  if (!granted) return;
+                }
+                setReminderEnabled(!reminderEnabled);
+              }}
               style={{
                 width: 44, height: 26, borderRadius: 13,
                 background: reminderEnabled ? T.accent : T.ruleStrong,

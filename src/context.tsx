@@ -5,6 +5,7 @@ import type { Habit, HabitLog } from './types';
 import type { Tokens } from './tokens';
 import { LIGHT, DARK } from './tokens';
 import { today, uid, formatDate, getDow, getDaysInMonth } from './utils';
+import { scheduleAll, startDailyReschedule } from './notifications';
 
 // Habits & logs stored locally per user
 const dataKey = (uid: string) => `discipline_v2_${uid}`;
@@ -228,10 +229,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Save local data on every change
+  // Save local data and reschedule notifications on every change
   useEffect(() => {
     if (user) saveLocal(user.id, local);
+    scheduleAll(local.habits);
   }, [local, user]);
+
+  // Daily reschedule at midnight
+  useEffect(() => {
+    startDailyReschedule(() => local.habits);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const state = toAppState(local, !!session);
   const tokens = local.theme === 'dark' ? DARK : LIGHT;
