@@ -39,3 +39,13 @@ alter table habit_logs enable row level security;
 create policy "own profile"   on profiles   for all using (auth.uid() = id);
 create policy "own habits"    on habits     for all using (auth.uid() = user_id);
 create policy "own logs"      on habit_logs for all using (auth.uid() = user_id);
+
+-- Push subscriptions table
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade not null,
+  subscription jsonb not null,
+  created_at timestamptz default now()
+);
+alter table push_subscriptions enable row level security;
+create policy "own subscriptions" on push_subscriptions for all using (auth.uid() = user_id);

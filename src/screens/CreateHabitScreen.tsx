@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context';
 import { Icon } from '../components/Icon';
-import { requestPermission, testNotification } from '../notifications';
+import { testNotification } from '../notifications';
 import type { Habit, HabitType, IconName } from '../types';
 
 const DAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
@@ -11,7 +11,7 @@ const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const ICONS: IconName[] = ['book', 'run', 'droplet', 'leaf', 'moon', 'bell', 'clock', 'heart', 'coffee', 'pen', 'music', 'dumbbell', 'sun', 'flame'];
 
 export function CreateHabitScreen() {
-  const { tokens: T, addHabit, updateHabit, deleteHabit, state } = useApp();
+  const { tokens: T, addHabit, updateHabit, deleteHabit, state, enablePush } = useApp();
   const navigate = useNavigate();
   const { id } = useParams<{ id?: string }>();
   const isEditing = !!id;
@@ -229,8 +229,8 @@ export function CreateHabitScreen() {
             <button
               onClick={async () => {
                 if (!reminderEnabled) {
-                  const granted = await requestPermission();
-                  if (!granted) return;
+                  const ok = await enablePush();
+                  if (!ok) return;
                 }
                 setReminderEnabled(!reminderEnabled);
               }}
