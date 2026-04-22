@@ -5,6 +5,7 @@ import type { Habit, HabitLog } from './types';
 import type { Tokens } from './tokens';
 import { LIGHT, DARK } from './tokens';
 import { today, uid, formatDate, getDow, getDaysInMonth } from './utils';
+import { subscribePush, syncReminders } from './notifications';
 
 // Habits & logs stored locally per user
 const dataKey = (uid: string) => `discipline_v2_${uid}`;
@@ -185,6 +186,7 @@ interface Ctx {
   authLoading: boolean;
   state: AppState;
   tokens: Tokens;
+  enablePush(): Promise<boolean>;
   signUp(email: string, password: string, name: string): Promise<string | null>;
   signIn(email: string, password: string): Promise<string | null>;
   logout(): Promise<void>;
@@ -229,12 +231,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (user) saveLocal(user.id, local);
+    if (user) {
+      saveLocal(user.id, local);
+      syncReminders(user.id, local.habits);
+    }
   }, [local, user]);
 
 
   const state = toAppState(local, !!session);
   const tokens = local.theme === 'dark' ? DARK : LIGHT;
+
+  const enablePush = useCallback(async (): Promise<boolean> => {
+    if (!user) return false;
+    return subscribePush(user.id);
+  }, [user]);
 
   const signUp = useCallback(async (email: string, password: string, name: string): Promise<string | null> => {
     const { data, error } = await supabase.auth.signUp({ email, password });
@@ -307,7 +317,7 @@ const logout = useCallback(async () => {
   return (
     <AppCtx.Provider value={{
       user, session, authLoading, state, tokens,
-      signUp, signIn, logout,
+      enablePush, signUp, signIn, logout,
       addHabit, updateHabit, deleteHabit, toggleLog,
       setUserName, createAccount, setTheme,
     }}>

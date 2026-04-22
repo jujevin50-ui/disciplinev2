@@ -4,6 +4,10 @@ import './index.css';
 import { App } from './App';
 import { AppProvider } from './context';
 
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppProvider>
