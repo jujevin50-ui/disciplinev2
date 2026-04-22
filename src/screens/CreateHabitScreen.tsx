@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context';
 import { Icon } from '../components/Icon';
-import { requestPermission } from '../notifications';
+import { requestPermission, testNotification } from '../notifications';
 import type { Habit, HabitType, IconName } from '../types';
 
 const DAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
@@ -248,13 +248,19 @@ export function CreateHabitScreen() {
             </button>
           </div>
           {reminderEnabled && (
-            <div style={{ marginTop: 10, padding: '12px 16px', background: T.paperAlt, borderRadius: 12 }}>
+            <div style={{ marginTop: 10, padding: '12px 16px', background: T.paperAlt, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
               <input
                 type="time"
                 value={reminderTime}
                 onChange={e => setReminderTime(e.target.value)}
-                style={{ fontSize: 20, color: T.ink, width: '100%' }}
+                style={{ fontSize: 20, color: T.ink, flex: 1 }}
               />
+              <button
+                onClick={() => testNotification({ id: 'test', name: name || 'Rappel', icon, type, frequency, goalMinutes, createdAt: '' })}
+                style={{ fontSize: 12, color: T.accent, fontWeight: 600, padding: '6px 10px', border: `1px solid ${T.accent}`, borderRadius: 8 }}
+              >
+                Tester
+              </button>
             </div>
           )}
         </div>
