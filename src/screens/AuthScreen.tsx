@@ -1,2 +1,100 @@
-// unused — auth is handled via onboarding
-export {};
+import { useState } from 'react';
+import { useApp } from '../context';
+
+export function AuthScreen() {
+  const { tokens: T, signIn, signUp } = useApp();
+  const [tab, setTab] = useState<'login' | 'signup'>('signup');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    setError(''); setInfo('');
+    if (!email.trim() || password.length < 6) return;
+    if (tab === 'signup' && !name.trim()) return;
+    setLoading(true);
+    if (tab === 'signup') {
+      const err = await signUp(email.trim(), password, name.trim());
+      if (err && err.includes('onfirm')) {
+        setInfo(err);
+        setTab('login');
+      } else if (err) {
+        setError(err);
+      }
+    } else {
+      const err = await signIn(email.trim(), password);
+      if (err) setError(err);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ height: '100%', background: T.paper, color: T.ink, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '64px 28px 32px' }}>
+        <h1 style={{ fontSize: 40, fontWeight: 400, letterSpacing: -0.8, margin: 0, lineHeight: 1.1 }}>
+          {tab === 'signup'
+            ? <><em style={{ color: T.accent, fontStyle: 'normal' }}>Discipline</em>.</>
+            : <>Bon retour<br /><em style={{ color: T.accent, fontStyle: 'normal' }}>parmi nous</em>.</>}
+        </h1>
+        <p style={{ fontSize: 14, color: T.inkSoft, margin: '10px 0 0', lineHeight: 1.5 }}>
+          {tab === 'signup' ? 'Créez un compte pour garder vos habitudes en permanence.' : 'Connectez-vous pour retrouver vos données.'}
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', margin: '0 28px 24px', background: T.paperAlt, borderRadius: 12, padding: 4 }}>
+        {(['signup', 'login'] as const).map(t => (
+          <button key={t} onClick={() => { setTab(t); setError(''); setInfo(''); }} style={{
+            flex: 1, padding: '9px', borderRadius: 9,
+            background: tab === t ? T.paper : 'transparent',
+            color: tab === t ? T.ink : T.inkMuted,
+            fontSize: 14, fontWeight: tab === t ? 600 : 400,
+          }}>
+            {t === 'signup' ? 'Créer un compte' : 'Se connecter'}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, padding: '0 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {tab === 'signup' && (
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: T.inkMuted, marginBottom: 8 }}>Prénom</div>
+            <input autoFocus value={name} onChange={e => setName(e.target.value)}
+              placeholder="Votre prénom"
+              style={{ width: '100%', fontSize: 17, color: T.ink, borderBottom: `1.5px solid ${T.ruleStrong}`, paddingBottom: 8, caretColor: T.accent }} />
+          </div>
+        )}
+        <div>
+          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: T.inkMuted, marginBottom: 8 }}>Email</div>
+          <input autoFocus={tab === 'login'} type="email" value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="votre@email.com"
+            style={{ width: '100%', fontSize: 17, color: T.ink, borderBottom: `1.5px solid ${T.ruleStrong}`, paddingBottom: 8, caretColor: T.accent }} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: T.inkMuted, marginBottom: 8 }}>Mot de passe</div>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+            placeholder="6 caractères minimum"
+            style={{ width: '100%', fontSize: 17, color: T.ink, borderBottom: `1.5px solid ${T.ruleStrong}`, paddingBottom: 8, caretColor: T.accent }} />
+        </div>
+
+        {error && <div style={{ padding: '10px 14px', background: '#fef2f2', borderRadius: 10, color: '#dc2626', fontSize: 13 }}>{error}</div>}
+        {info && <div style={{ padding: '10px 14px', background: T.paperAlt, borderRadius: 10, color: T.inkSoft, fontSize: 13 }}>{info}</div>}
+
+        <div style={{ flex: 1 }} />
+        <button onClick={submit}
+          disabled={loading || !email.trim() || password.length < 6 || (tab === 'signup' && !name.trim())}
+          style={{
+            width: '100%', height: 54, borderRadius: 14, marginBottom: 40,
+            background: (!email.trim() || password.length < 6 || (tab === 'signup' && !name.trim())) ? T.paperAlt : T.accent,
+            color: (!email.trim() || password.length < 6 || (tab === 'signup' && !name.trim())) ? T.inkMuted : '#fff',
+            fontSize: 15, fontWeight: 600, opacity: loading ? 0.7 : 1,
+          }}>
+          {loading ? '…' : tab === 'signup' ? 'Créer mon compte →' : 'Connexion →'}
+        </button>
+      </div>
+    </div>
+  );
+}

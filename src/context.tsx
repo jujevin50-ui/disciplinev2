@@ -1,37 +1,34 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import type { AppState, Habit, HabitLog } from './types';
+import type { User, Session } from '@supabase/supabase-js';
+import { supabase } from './supabase';
+import type { Habit, HabitLog } from './types';
 import type { Tokens } from './tokens';
 import { LIGHT, DARK } from './tokens';
 import { today, uid, formatDate, getDow, getDaysInMonth } from './utils';
 
-const STORAGE_KEY = 'discipline_v2';
+// Habits & logs stored locally per user
+const dataKey = (uid: string) => `discipline_v2_${uid}`;
 
-const DEFAULT: AppState = {
-  habits: [],
-  logs: [],
-  userName: '',
-  loggedIn: false,
-  theme: 'light',
-};
-
-function load(): AppState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      // migration: old shape used onboardingDone or onboarding_done
-      if ((parsed.onboardingDone || parsed.onboarding_done) && !parsed.loggedIn) {
-        parsed.loggedIn = true;
-      }
-      return { ...DEFAULT, ...parsed };
-    }
-  } catch { /* ignore */ }
-  return DEFAULT;
+interface LocalData {
+  habits: Habit[];
+  logs: HabitLog[];
+  userName: string;
+  theme: 'light' | 'dark';
 }
 
-function save(state: AppState) {
+const EMPTY_LOCAL: LocalData = { habits: [], logs: [], userName: '', theme: 'light' };
+
+function loadLocal(userId: string): LocalData {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const raw = localStorage.getItem(dataKey(userId));
+    if (raw) return { ...EMPTY_LOCAL, ...JSON.parse(raw) };
+  } catch { /* ignore */ }
+  return EMPTY_LOCAL;
+}
+
+function saveLocal(userId: string, data: LocalData) {
+  try {
+    localStorage.setItem(dataKey(userId), JSON.stringify(data));
   } catch { /* ignore */ }
 }
 
@@ -174,82 +171,146 @@ export function computeGlobalStats(habits: Habit[], logs: HabitLog[], days = 84)
 
 // ── Context ───────────────────────────────────────────────────────────────
 
+export interface AppState {
+  habits: Habit[];
+  logs: HabitLog[];
+  userName: string;
+  loggedIn: boolean;
+  theme: 'light' | 'dark';
+}
+
 interface Ctx {
+  user: User | null;
+  session: Session | null;
+  authLoading: boolean;
   state: AppState;
   tokens: Tokens;
+  signUp(email: string, password: string, name: string): Promise<string | null>;
+  signIn(email: string, password: string): Promise<string | null>;
+  logout(): Promise<void>;
   addHabit(h: Omit<Habit, 'id' | 'createdAt'>): string;
   updateHabit(id: string, h: Partial<Omit<Habit, 'id' | 'createdAt'>>): void;
   deleteHabit(id: string): void;
   toggleLog(habitId: string, date: string): void;
   setUserName(name: string): void;
   createAccount(habits: Omit<Habit, 'id' | 'createdAt'>[], name: string): void;
-  logout(): void;
   setTheme(t: 'light' | 'dark'): void;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
 
+function toAppState(local: LocalData, loggedIn: boolean): AppState {
+  return { ...local, loggedIn };
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(load);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [local, setLocal] = useState<LocalData>(EMPTY_LOCAL);
 
-  // Save on every state change AND on page close
-  useEffect(() => { save(state); }, [state]);
+  // Supabase session — persists automatically via localStorage
   useEffect(() => {
-    const handler = () => save(state);
-    window.addEventListener('beforeunload', handler);
-    window.addEventListener('pagehide', handler);
-    return () => {
-      window.removeEventListener('beforeunload', handler);
-      window.removeEventListener('pagehide', handler);
-    };
-  }, [state]);
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setUser(s?.user ?? null);
+      if (s?.user) setLocal(loadLocal(s.user.id));
+      setAuthLoading(false);
+    });
 
-  const tokens = state.theme === 'dark' ? DARK : LIGHT;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      setUser(s?.user ?? null);
+      if (s?.user) setLocal(loadLocal(s.user.id));
+      else setLocal(EMPTY_LOCAL);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Save local data on every change
+  useEffect(() => {
+    if (user) saveLocal(user.id, local);
+  }, [local, user]);
+
+  const state = toAppState(local, !!session);
+  const tokens = local.theme === 'dark' ? DARK : LIGHT;
+
+  const signUp = useCallback(async (email: string, password: string, name: string): Promise<string | null> => {
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) return error.message;
+    // If session returned immediately (email confirm disabled) → already logged in
+    if (data.session) {
+      if (data.user) {
+        const initial: LocalData = { ...EMPTY_LOCAL, userName: name };
+        saveLocal(data.user.id, initial);
+        setLocal(initial);
+      }
+      return null;
+    }
+    // Email confirmation required → sign in after user confirms
+    return 'Vérifiez votre email et cliquez le lien de confirmation, puis connectez-vous.';
+  }, []);
+
+  const signIn = useCallback(async (email: string, password: string): Promise<string | null> => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return error.message === 'Invalid login credentials' ? 'Email ou mot de passe incorrect.' : error.message;
+    return null;
+  }, []);
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
+    setLocal(EMPTY_LOCAL);
+  }, []);
+
+  const updateLocal = useCallback((fn: (prev: LocalData) => LocalData) => {
+    setLocal(fn);
+  }, []);
 
   const addHabit = useCallback((h: Omit<Habit, 'id' | 'createdAt'>): string => {
     const id = uid();
-    setState(s => ({ ...s, habits: [...s.habits, { ...h, id, createdAt: today() }] }));
+    updateLocal(s => ({ ...s, habits: [...s.habits, { ...h, id, createdAt: today() }] }));
     return id;
-  }, []);
+  }, [updateLocal]);
 
   const updateHabit = useCallback((id: string, h: Partial<Omit<Habit, 'id' | 'createdAt'>>) => {
-    setState(s => ({ ...s, habits: s.habits.map(x => x.id === id ? { ...x, ...h } : x) }));
-  }, []);
+    updateLocal(s => ({ ...s, habits: s.habits.map(x => x.id === id ? { ...x, ...h } : x) }));
+  }, [updateLocal]);
 
   const deleteHabit = useCallback((id: string) => {
-    setState(s => ({ ...s, habits: s.habits.filter(h => h.id !== id), logs: s.logs.filter(l => l.habitId !== id) }));
-  }, []);
+    updateLocal(s => ({ ...s, habits: s.habits.filter(h => h.id !== id), logs: s.logs.filter(l => l.habitId !== id) }));
+  }, [updateLocal]);
 
   const toggleLog = useCallback((habitId: string, date: string) => {
-    setState(s => {
+    updateLocal(s => {
       const existing = s.logs.find(l => l.habitId === habitId && l.date === date);
       if (existing) return { ...s, logs: s.logs.map(l => l.habitId === habitId && l.date === date ? { ...l, completed: !l.completed } : l) };
       return { ...s, logs: [...s.logs, { habitId, date, completed: true }] };
     });
-  }, []);
+  }, [updateLocal]);
 
   const setUserName = useCallback((name: string) => {
-    setState(s => ({ ...s, userName: name }));
-  }, []);
+    updateLocal(s => ({ ...s, userName: name }));
+  }, [updateLocal]);
 
   const createAccount = useCallback((habitDefs: Omit<Habit, 'id' | 'createdAt'>[], name: string) => {
     const newHabits: Habit[] = habitDefs.map(h => ({ ...h, id: uid(), createdAt: today() }));
-    const next: AppState = { ...DEFAULT, habits: newHabits, userName: name, loggedIn: true, theme: 'light' };
-    save(next);
-    setState(next);
-  }, []);
-
-  const logout = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    setState(DEFAULT);
-  }, []);
+    const next: LocalData = { habits: newHabits, logs: [], userName: name, theme: 'light' };
+    if (user) saveLocal(user.id, next);
+    setLocal(next);
+  }, [user]);
 
   const setTheme = useCallback((t: 'light' | 'dark') => {
-    setState(s => ({ ...s, theme: t }));
-  }, []);
+    updateLocal(s => ({ ...s, theme: t }));
+  }, [updateLocal]);
 
   return (
-    <AppCtx.Provider value={{ state, tokens, addHabit, updateHabit, deleteHabit, toggleLog, setUserName, createAccount, logout, setTheme }}>
+    <AppCtx.Provider value={{
+      user, session, authLoading, state, tokens,
+      signUp, signIn, logout,
+      addHabit, updateHabit, deleteHabit, toggleLog,
+      setUserName, createAccount, setTheme,
+    }}>
       {children}
     </AppCtx.Provider>
   );
