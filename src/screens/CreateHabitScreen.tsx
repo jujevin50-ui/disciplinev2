@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context';
 import { Icon } from '../components/Icon';
-import { testNotification } from '../notifications';
 import type { Habit, HabitType, IconName } from '../types';
 
 const DAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
@@ -11,7 +10,7 @@ const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const ICONS: IconName[] = ['book', 'run', 'droplet', 'leaf', 'moon', 'bell', 'clock', 'heart', 'coffee', 'pen', 'music', 'dumbbell', 'sun', 'flame'];
 
 export function CreateHabitScreen() {
-  const { tokens: T, addHabit, updateHabit, deleteHabit, state, enablePush } = useApp();
+  const { tokens: T, addHabit, updateHabit, deleteHabit, state } = useApp();
   const navigate = useNavigate();
   const { id } = useParams<{ id?: string }>();
   const isEditing = !!id;
@@ -22,8 +21,6 @@ export function CreateHabitScreen() {
   const [type, setType] = useState<HabitType>(existing?.type ?? 'boolean');
   const [goalMinutes, setGoalMinutes] = useState(existing?.goalMinutes ?? 20);
   const [frequency, setFrequency] = useState<number[]>(existing?.frequency ?? ALL_DAYS);
-  const [reminderTime, setReminderTime] = useState(existing?.reminderTime ?? '');
-  const [reminderEnabled, setReminderEnabled] = useState(!!(existing?.reminderTime));
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const toggleDay = (d: number) => {
@@ -42,7 +39,6 @@ export function CreateHabitScreen() {
       type,
       goalMinutes: type === 'duration' ? goalMinutes : undefined,
       frequency,
-      reminderTime: reminderEnabled && reminderTime ? reminderTime : undefined,
     };
     if (isEditing && id) {
       updateHabit(id, data);
@@ -211,58 +207,6 @@ export function CreateHabitScreen() {
               );
             })}
           </div>
-        </div>
-
-        {/* Reminder */}
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: T.inkMuted, marginBottom: 10 }}>
-            Rappel
-          </div>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '14px 16px', background: T.paperAlt, borderRadius: 12,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="bell" size={18} color={T.inkSoft} />
-              <span style={{ fontSize: 15, color: T.ink }}>Activer un rappel</span>
-            </div>
-            <button
-              onClick={async () => {
-                if (!reminderEnabled) {
-                  const ok = await enablePush();
-                  if (!ok) return;
-                }
-                setReminderEnabled(!reminderEnabled);
-              }}
-              style={{
-                width: 44, height: 26, borderRadius: 13,
-                background: reminderEnabled ? T.accent : T.ruleStrong,
-                position: 'relative', transition: 'background .2s',
-              }}
-            >
-              <div style={{
-                position: 'absolute', top: 3, left: reminderEnabled ? 21 : 3,
-                width: 20, height: 20, borderRadius: 10, background: '#fff',
-                transition: 'left .2s',
-              }} />
-            </button>
-          </div>
-          {reminderEnabled && (
-            <div style={{ marginTop: 10, padding: '12px 16px', background: T.paperAlt, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <input
-                type="time"
-                value={reminderTime}
-                onChange={e => setReminderTime(e.target.value)}
-                style={{ fontSize: 20, color: T.ink, flex: 1 }}
-              />
-              <button
-                onClick={() => testNotification({ id: 'test', name: name || 'Rappel', icon, type, frequency, goalMinutes, createdAt: '' })}
-                style={{ fontSize: 12, color: T.accent, fontWeight: 600, padding: '6px 10px', border: `1px solid ${T.accent}`, borderRadius: 8 }}
-              >
-                Tester
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Delete (edit only) */}

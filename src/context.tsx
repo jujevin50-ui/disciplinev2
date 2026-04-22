@@ -5,7 +5,6 @@ import type { Habit, HabitLog } from './types';
 import type { Tokens } from './tokens';
 import { LIGHT, DARK } from './tokens';
 import { today, uid, formatDate, getDow, getDaysInMonth } from './utils';
-import { scheduleAll, syncReminders, subscribePush } from './notifications';
 
 // Habits & logs stored locally per user
 const dataKey = (uid: string) => `discipline_v2_${uid}`;
@@ -189,8 +188,7 @@ interface Ctx {
   signUp(email: string, password: string, name: string): Promise<string | null>;
   signIn(email: string, password: string): Promise<string | null>;
   logout(): Promise<void>;
-  enablePush(): Promise<boolean>;
-  addHabit(h: Omit<Habit, 'id' | 'createdAt'>): string;
+addHabit(h: Omit<Habit, 'id' | 'createdAt'>): string;
   updateHabit(id: string, h: Partial<Omit<Habit, 'id' | 'createdAt'>>): void;
   deleteHabit(id: string): void;
   toggleLog(habitId: string, date: string): void;
@@ -230,13 +228,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Save local data, reschedule and sync reminders on every change
   useEffect(() => {
-    if (user) {
-      saveLocal(user.id, local);
-      syncReminders(user.id, local.habits);
-    }
-    scheduleAll(local.habits);
+    if (user) saveLocal(user.id, local);
   }, [local, user]);
 
 
@@ -265,12 +258,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return null;
   }, []);
 
-  const enablePush = useCallback(async (): Promise<boolean> => {
-    if (!user) return false;
-    return subscribePush(user.id);
-  }, [user]);
-
-  const logout = useCallback(async () => {
+const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setLocal(EMPTY_LOCAL);
   }, []);
@@ -319,7 +307,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppCtx.Provider value={{
       user, session, authLoading, state, tokens,
-      signUp, signIn, logout, enablePush,
+      signUp, signIn, logout,
       addHabit, updateHabit, deleteHabit, toggleLog,
       setUserName, createAccount, setTheme,
     }}>

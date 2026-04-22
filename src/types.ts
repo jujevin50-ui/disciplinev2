@@ -13,7 +13,6 @@ export interface Habit {
   type: HabitType;
   goalMinutes?: number;
   frequency: number[];   // 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-  reminderTime?: string; // "HH:MM"
   createdAt: string;     // "YYYY-MM-DD"
 }
 
